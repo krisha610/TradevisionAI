@@ -1653,19 +1653,17 @@ MODEL_COLORS = {"SimpleRNN":"#00b8ff","LSTM":"#00ff9d","GRU":"#bf00ff"}
 active_color  = MODEL_COLORS.get(active_model,"#00ff9d")
 
 # 52W proximity badges
-w52h = info.get("fiftyTwoWeekHigh")
-w52l = info.get("fiftyTwoWeekLow")
+w52h = info.get("fiftyTwoWeekHigh", 0.0) or 0.0
+w52l = info.get("fiftyTwoWeekLow", 0.0) or 0.0
+pct_h = (w52h - current_price) / w52h * 100 if w52h > 0 else 0.0
+pct_l = (current_price - w52l) / w52l * 100 if w52l > 0 else 0.0
+
 badge_html = ""
-if isinstance(w52h,(int,float)) and w52h>0:
-    pct_from_high = (w52h - current_price)/w52h*100
-    if pct_from_high < 5:
-        badge_html += "<span class='alert-badge badge-danger'>🔴 NEAR 52W HIGH</span>"
-    elif pct_from_high < 15:
-        badge_html += "<span class='alert-badge badge-warning'>🟡 APPROACHING HIGH</span>"
-if isinstance(w52l,(int,float)) and w52l>0:
-    pct_from_low = (current_price - w52l)/w52l*100
-    if pct_from_low < 5:
-        badge_html += "<span class='alert-badge badge-safe'>🟢 NEAR 52W LOW</span>"
+if w52h > 0 and pct_h < 15:
+    if pct_h < 5:    badge_html += "<span class='alert-badge badge-danger'>🔴 NEAR 52W HIGH</span>"
+    else:           badge_html += "<span class='alert-badge badge-warning'>🟡 APPROACHING HIGH</span>"
+if w52l > 0 and pct_l < 5:
+    badge_html += "<span class='alert-badge badge-safe'>🟢 NEAR 52W LOW</span>"
 
 # Market open check
 market_is_open = is_market_open(stock_name, info)
@@ -1721,10 +1719,7 @@ if info:
     r1c5.metric("Market Cap", mcap)
     r1c6.metric("P/E Ratio",  f"{info.get('trailingPE','N/A')}")
 
-    # 52W alert row
-    if isinstance(w52h,(int,float)) and isinstance(w52l,(int,float)):
-        pct_h = (w52h-current_price)/w52h*100
-        pct_l = (current_price-w52l)/w52l*100
+    # 52W alert row (already computed above)
     # RNN section HTML
     if not market_is_open:
         rnn_val_html = "<span style='color:#64748b;font-weight:700;margin-left:8px;'>CLOSED</span>"
