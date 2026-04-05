@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+tf_env/
+tv_env/
+.env
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Data & Models
+tradevision.db
+saved_models/
+.tradevision/
+
+# VS Code
+.vscode/
