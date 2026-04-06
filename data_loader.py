@@ -75,4 +75,4 @@ def load_data(stock_name):
     except Exception:
         info['news'] = []
 
-    return data, info
+    return data, info
