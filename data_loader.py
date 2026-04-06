@@ -53,7 +53,10 @@ def load_data(stock_name):
         except Exception:
             time.sleep(0.5)
 
-    if not info or len(info) < 10:
+    # Sometimes yfinance gets an info dict but omits qualitative keys like recommendationKey
+    needs_yq_fallback = not info or "recommendationKey" not in info or str(info.get("recommendationKey")).lower() in ["none", "n/a"]
+
+    if needs_yq_fallback or len(info) < 10:
         try:
             from yahooquery import Ticker as YQTicker
             yq_ticker = YQTicker(stock_name)
@@ -70,21 +73,24 @@ def load_data(stock_name):
             except: yq_financial = {}
             
             # fast_info is more reliable for real-time prices
-            # fast_info is more reliable and doesn't hit server-side scraping blocks as often
             fi = ticker.fast_info
-            info = {
-                "shortName": stock_name.replace(".NS","").replace(".BO",""),
-                "fiftyTwoWeekHigh": fi.get("yearHigh"),
-                "fiftyTwoWeekLow":  fi.get("yearLow"),
-                "marketCap":        fi.get("marketCap"),
-                "regularMarketPrice": fi.get("lastPrice", data['Close'].iloc[-1]),
-                "currency":         fi.get("currency", "INR"),
-                "recommendationKey": yq_financial.get("recommendationKey", "N/A"),
-                "returnOnEquity": yq_financial.get("returnOnEquity"),
-                "profitMargins": yq_financial.get("profitMargins"),
-                "trailingEps": yq_summary.get("trailingEps") or yq_financial.get("returnOnEquity"), # Fallback
-                "dividendYield": yq_summary.get("dividendYield")
-            }
+            
+            # Augment or replace info completely
+            if not info: info = {}
+            
+            info["shortName"] = info.get("shortName") or stock_name.replace(".NS","").replace(".BO","")
+            info["fiftyTwoWeekHigh"] = info.get("fiftyTwoWeekHigh") or fi.get("yearHigh")
+            info["fiftyTwoWeekLow"] = info.get("fiftyTwoWeekLow") or fi.get("yearLow")
+            info["marketCap"] = info.get("marketCap") or fi.get("marketCap")
+            info["regularMarketPrice"] = info.get("regularMarketPrice") or fi.get("lastPrice", data['Close'].iloc[-1])
+            info["currency"] = info.get("currency") or fi.get("currency", "INR")
+            
+            info["recommendationKey"] = yq_financial.get("recommendationKey", "N/A")
+            info["returnOnEquity"] = yq_financial.get("returnOnEquity")
+            info["profitMargins"] = yq_financial.get("profitMargins")
+            info["trailingEps"] = yq_summary.get("trailingEps") or yq_financial.get("returnOnEquity") 
+            info["dividendYield"] = yq_summary.get("dividendYield")
+            
         except Exception as e:
             print(f"Error fetching YQ fallback: {e}")
             pass
