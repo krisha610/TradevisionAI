@@ -1,7 +1,7 @@
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import (
     Dense, SimpleRNN, LSTM, GRU,
-    Dropout, BatchNormalization, Bidirectional
+    Dropout, BatchNormalization, Bidirectional, Input
 )
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
@@ -12,20 +12,10 @@ def build_model(input_shape, model_type="LSTM", units=64, dropout=0.2):
     input_shape: (window_size, n_features)
     """
     model = Sequential()
-
-    layer_map = {
-        "SimpleRNN": SimpleRNN,
-        "LSTM":      LSTM,
-        "GRU":       GRU,
-    }
-    Layer = layer_map.get(model_type, LSTM)
-
+    model.add(Input(shape=input_shape))
     if model_type == "LSTM":
         # Bidirectional LSTM — sees past AND future context in window
-        model.add(Bidirectional(
-            LSTM(units, return_sequences=True),
-            input_shape=input_shape
-        ))
+        model.add(Bidirectional(LSTM(units, return_sequences=True)))
         model.add(BatchNormalization())
         model.add(Dropout(dropout))
 
@@ -38,7 +28,7 @@ def build_model(input_shape, model_type="LSTM", units=64, dropout=0.2):
         model.add(Dropout(dropout))
 
     elif model_type == "GRU":
-        model.add(GRU(units, return_sequences=True, input_shape=input_shape))
+        model.add(GRU(units, return_sequences=True))
         model.add(BatchNormalization())
         model.add(Dropout(dropout))
 
@@ -51,7 +41,7 @@ def build_model(input_shape, model_type="LSTM", units=64, dropout=0.2):
         model.add(Dropout(dropout))
 
     else:  # SimpleRNN
-        model.add(SimpleRNN(units, return_sequences=True, input_shape=input_shape))
+        model.add(SimpleRNN(units, return_sequences=True))
         model.add(Dropout(dropout))
         model.add(SimpleRNN(units // 2, return_sequences=True))
         model.add(Dropout(dropout))

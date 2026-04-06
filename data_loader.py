@@ -25,8 +25,9 @@ def load_data(stock_name):
     # 2. Fill missing Volume with forward fill
     if 'Volume' in data.columns:
         data['Volume'] = data['Volume'].replace(0, np.nan)
-        data['Volume'].fillna(method='ffill', inplace=True)
-        data['Volume'].fillna(0, inplace=True)
+        data['Volume'] = data['Volume'].ffill()
+        data['Volume'] = data['Volume'].fillna(0)
+
 
     # 3. Remove obvious outliers — price jumps >70% in one day
     pct_chg = data['Close'].pct_change().abs()

@@ -233,14 +233,20 @@ def get_currency(t):
 def is_market_open(ticker, info):
     """
     Checks if the market for the given ticker is currently open.
-    Prioritizes yfinance's marketState, falls back to timezone-aware clock.
+    Prioritizes yfinance's marketState == 'REGULAR', but falls back to clock
+    logic for 'PRE', 'POST', or potentially lagging states.
     """
     market_state = info.get('marketState', '').upper()
-    if market_state:
-        # REGULAR = Open, everything else (CLOSED, PRE, POST) is considered "closed" for prediction purposes
-        return market_state == "REGULAR"
+    
+    # 1. Definitive "Open" if yfinance says so
+    if market_state == "REGULAR":
+        return True
+        
+    # 2. Definitive "Closed" if yfinance says so (Likely a holiday / halt)
+    if market_state in ["CLOSED", "HALT"]:
+        return False
 
-    # Fallback logic for basic timezone checks
+    # 3. Fallback logic for PRE-market lag or missing states
     now_utc = datetime.now(timezone.utc)
     t = ticker.upper()
 
@@ -254,7 +260,8 @@ def is_market_open(ticker, info):
         return market_open <= now_ist <= market_close
 
     if "." not in t or t.endswith(".US"):
-        # US Markets (NYSE/NASDAQ): 9:30 AM - 4:00 PM ET (UTC-5 conservative)
+        # US Markets (NYSE/NASDAQ): 9:30 AM - 4:00 PM ET (UTC-5/UTC-4)
+        # Using a fixed -5 for simplicity unless pytz is used
         et_offset = timedelta(hours=-5)
         now_et = now_utc + et_offset
         if now_et.weekday() >= 5: return False
@@ -262,7 +269,9 @@ def is_market_open(ticker, info):
         market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
         return market_open <= now_et <= market_close
 
+    # 4. Unknown exchange
     return True
+
 
 def smart_resolve_ticker(raw):
     """
@@ -596,9 +605,12 @@ MODELS_DIR.mkdir(exist_ok=True)
 
 def _model_cache_key(stock_name, model_type, window, horizon):
     """Unique key per stock+model+settings. Expires after 1 day."""
-    today = datetime.now().strftime("%Y-%m-%d")
-    raw   = f"{stock_name}_{model_type}_{window}_{horizon}_{today}"
+    # v3: Forcing even more aggressive refresh to clear past-date lag
+    today_ist = (datetime.now(timezone.utc) + timedelta(hours=5.5)).strftime("%Y-%m-%d")
+    raw   = f"{stock_name}_{model_type}_{window}_{horizon}_{today_ist}_v3"
     return hashlib.md5(raw.encode()).hexdigest()
+
+
 
 def _save_result(key, result):
     try:
@@ -1728,13 +1740,8 @@ if info:
         rnn_icon  = "▲" if next_price >= current_price else "▼"
         rnn_pct_val = abs(next_price - current_price) / current_price * 100
         rnn_badge = "badge-safe" if next_price >= current_price else "badge-danger"
-        rnn_val_html = f"""
-        <span style='color:{rnn_color};font-weight:700;margin-left:8px;'>
-            {CUR}{next_price:,.2f}
-        </span>
-        <span class='alert-badge {rnn_badge}'>
-            {rnn_icon} {rnn_pct_val:.2f}%
-        </span>"""
+        rnn_val_html = f"<span style='color:{rnn_color};font-weight:700;margin-left:8px;'>{CUR}{next_price:,.2f}</span> <span class='alert-badge {rnn_badge}'>{rnn_icon} {rnn_pct_val:.2f}%</span>"
+
 
     st.markdown(f"""
     <div style='display:flex;gap:12px;margin:8px 0 4px;flex-wrap:wrap;'>
