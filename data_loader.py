@@ -2,6 +2,8 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import time
+
 
 def load_data(stock_name):
     start_date = "2017-01-01"
@@ -41,12 +43,31 @@ def load_data(stock_name):
     if len(data) < 200:
         return None, {}
 
-    # ── Fetch info safely ─────────────────────────────────────────
+    # ── Fetch info safely with Retries & Fast-Info Fallback ──────────
     info = {}
-    try:
-        info = ticker.info or {}
-    except Exception:
-        info = {}
+    for attempt in range(3):
+        try:
+            info = ticker.info
+            if info and len(info) > 10: 
+                break
+        except Exception:
+            time.sleep(0.5)
+
+    if not info or len(info) < 10:
+        try:
+            # fast_info is more reliable and doesn't hit server-side scraping blocks as often
+            fi = ticker.fast_info
+            info = {
+                "shortName": stock_name.replace(".NS","").replace(".BO",""),
+                "fiftyTwoWeekHigh": fi.get("yearHigh"),
+                "fiftyTwoWeekLow":  fi.get("yearLow"),
+                "marketCap":        fi.get("marketCap"),
+                "regularMarketPrice": fi.get("lastPrice", data['Close'].iloc[-1]),
+                "currency":         fi.get("currency", "INR"),
+                "recommendationKey": "N/A"
+            }
+        except Exception:
+            pass
 
     try:
         news = ticker.news
@@ -54,4 +75,4 @@ def load_data(stock_name):
     except Exception:
         info['news'] = []
 
-    return data, info
+    return data, info

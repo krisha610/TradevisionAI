@@ -624,9 +624,9 @@ MODELS_DIR.mkdir(exist_ok=True)
 
 def _model_cache_key(stock_name, model_type, window, horizon):
     """Unique key per stock+model+settings. Expires after 1 day."""
-    # v3: Forcing even more aggressive refresh to clear past-date lag
+    # v4: Forcing refresh to apply new robust load_data logic (fixes N/A)
     today_ist = (datetime.now(timezone.utc) + timedelta(hours=5.5)).strftime("%Y-%m-%d")
-    raw   = f"{stock_name}_{model_type}_{window}_{horizon}_{today_ist}_v3"
+    raw   = f"{stock_name}_{model_type}_{window}_{horizon}_{today_ist}_v4"
     return hashlib.md5(raw.encode()).hexdigest()
 
 
