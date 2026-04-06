@@ -9,7 +9,14 @@ def load_data(stock_name):
     start_date = "2017-01-01"
     end_date   = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
 
-    ticker = yf.Ticker(stock_name)
+    # Use a custom session with a realistic User-Agent to bypass Cloud blockers
+    import requests
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    })
+    
+    ticker = yf.Ticker(stock_name, session=session)
     data   = ticker.history(start=start_date, end=end_date, auto_adjust=False)
 
     if data is None or data.empty:
