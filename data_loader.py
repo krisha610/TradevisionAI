@@ -9,14 +9,7 @@ def load_data(stock_name):
     start_date = "2017-01-01"
     end_date   = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
 
-    # Use a custom session with a realistic User-Agent to bypass Cloud blockers
-    import requests
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-    })
-    
-    ticker = yf.Ticker(stock_name, session=session)
+    ticker = yf.Ticker(stock_name)
     data   = ticker.history(start=start_date, end=end_date, auto_adjust=False)
 
     if data is None or data.empty:
@@ -62,6 +55,21 @@ def load_data(stock_name):
 
     if not info or len(info) < 10:
         try:
+            from yahooquery import Ticker as YQTicker
+            yq_ticker = YQTicker(stock_name)
+            
+            # Fetch qualitative data using yahooquery
+            try:
+                yq_summary = yq_ticker.summary_detail.get(stock_name, {})
+                if isinstance(yq_summary, str): yq_summary = {}
+            except: yq_summary = {}
+            
+            try:
+                yq_financial = yq_ticker.financial_data.get(stock_name, {})
+                if isinstance(yq_financial, str): yq_financial = {}
+            except: yq_financial = {}
+            
+            # fast_info is more reliable for real-time prices
             # fast_info is more reliable and doesn't hit server-side scraping blocks as often
             fi = ticker.fast_info
             info = {
@@ -71,9 +79,14 @@ def load_data(stock_name):
                 "marketCap":        fi.get("marketCap"),
                 "regularMarketPrice": fi.get("lastPrice", data['Close'].iloc[-1]),
                 "currency":         fi.get("currency", "INR"),
-                "recommendationKey": "N/A"
+                "recommendationKey": yq_financial.get("recommendationKey", "N/A"),
+                "returnOnEquity": yq_financial.get("returnOnEquity"),
+                "profitMargins": yq_financial.get("profitMargins"),
+                "trailingEps": yq_summary.get("trailingEps") or yq_financial.get("returnOnEquity"), # Fallback
+                "dividendYield": yq_summary.get("dividendYield")
             }
-        except Exception:
+        except Exception as e:
+            print(f"Error fetching YQ fallback: {e}")
             pass
 
     try:
