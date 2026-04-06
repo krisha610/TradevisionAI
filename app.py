@@ -7,6 +7,7 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta, timezone
 import os, time, urllib.request, xml.etree.ElementTree as ET
 import textwrap
+from textblob import TextBlob
 
 import yfinance as yf
 import sqlite3, hashlib, json, smtplib
@@ -1771,34 +1772,28 @@ if info:
         )
     
     with m_col3:
-        if not market_is_open:
-            render_html_block("TOMORROW RNN", "CLOSED", "Market Offline", "#64748b")
-        else:
-            rnn_color = "#00ff9d" if next_price >= current_price else "#ff0055"
-            rnn_icon  = "▲" if next_price >= current_price else "▼"
-            rnn_pct_val = abs(next_price - current_price) / current_price * 100
-            render_html_block(
-                title="TOMORROW RNN",
-                main_text=f"{CUR}{next_price:,.2f}",
-                sub_text=f"{rnn_icon} {rnn_pct_val:.2f}%",
-                color=rnn_color
-            )
+        rnn_color = "#00ff9d" if next_price >= current_price else "#ff0055"
+        rnn_icon  = "▲" if next_price >= current_price else "▼"
+        rnn_pct_val = abs(next_price - current_price) / current_price * 100
+        render_html_block(
+            title="TOMORROW RNN",
+            main_text=f"{CUR}{next_price:,.2f}",
+            sub_text=f"{rnn_icon} {rnn_pct_val:.2f}%",
+            color=rnn_color
+        )
 
 
 st.divider()
 
-# Forecast summary cards (Only if market is open)
-if market_is_open:
-    c1,c2,c3,c4,c5 = st.columns(5)
-    with c1: st.metric("Tomorrow",      f"{CUR}{next_price:,.2f}", f"{'▲' if price_change>=0 else '▼'} {abs(price_change_pct):.2f}%", delta_color="normal" if price_change>=0 else "inverse")
-    with c2: st.metric("Test RMSE",     f"{CUR}{rmse:.2f}",       "Prediction Error",   delta_color="off")
-    with c3: st.metric("Forecast High", f"{CUR}{max(forecast_flat):,.2f}", "Peak",       delta_color="normal")
-    with c4: st.metric("Forecast Low",  f"{CUR}{min(forecast_flat):,.2f}", "Trough",     delta_color="inverse")
-    with c5:
-        nc = (forecast_flat[-1]-current_price)/current_price*100
-        st.metric(f"{horizon_input}-Day Change", f"{CUR}{fsign}{forecast_change:.2f}", f"{fsign}{nc:.2f}%", delta_color="normal" if nc>=0 else "inverse")
-else:
-    st.info("🕒 **Market is currently closed.** AI Predictions and Forecasts are optimized for live market data and will resume when the exchange re-opens.")
+# Forecast summary cards
+c1,c2,c3,c4,c5 = st.columns(5)
+with c1: st.metric("Tomorrow",      f"{CUR}{next_price:,.2f}", f"{'▲' if price_change>=0 else '▼'} {abs(price_change_pct):.2f}%", delta_color="normal" if price_change>=0 else "inverse")
+with c2: st.metric("Test RMSE",     f"{CUR}{rmse:.2f}",       "Prediction Error",   delta_color="off")
+with c3: st.metric("Forecast High", f"{CUR}{max(forecast_flat):,.2f}", "Peak",       delta_color="normal")
+with c4: st.metric("Forecast Low",  f"{CUR}{min(forecast_flat):,.2f}", "Trough",     delta_color="inverse")
+with c5:
+    nc = (forecast_flat[-1]-current_price)/current_price*100
+    st.metric(f"{horizon_input}-Day Change", f"{CUR}{fsign}{forecast_change:.2f}", f"{fsign}{nc:.2f}%", delta_color="normal" if nc>=0 else "inverse")
 
 st.divider()
 
@@ -1826,6 +1821,7 @@ if page == "Dashboard":
 
         if news_list:
             shown = 0
+            sentiment_scores = []
             for item in news_list:
                 parsed = parse_news_item(item)
                 if not parsed:
@@ -1834,10 +1830,21 @@ if page == "Dashboard":
                     parsed = (t2, item.get("publisher","News Source"), item.get("link",""), str(item.get("providerPublishTime","N/A")))
                 title, pub, link, dt = parsed
                 href = link if link.startswith("http") else "#"
+                
+                # NLP Sentiment Check
+                analysis = TextBlob(title)
+                polarity = analysis.sentiment.polarity
+                sentiment_scores.append(polarity)
+                
+                if polarity > 0.1:   sent_icon, sent_col = "🟢 BULLISH", "#00ff9d"
+                elif polarity < -0.1: sent_icon, sent_col = "🔴 BEARISH", "#ff0055"
+                else:                sent_icon, sent_col = "🟡 NEUTRAL", "#e3b341"
+
                 st.markdown(f"""
                 <div class='news-card'>
                     <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;'>
                         <span style='font-size:10px;color:#00b8ff;font-weight:600;letter-spacing:1px;'>{pub.upper()}</span>
+                        <span style='font-size:9px;color:{sent_col};font-weight:700;'>{sent_icon}</span>
                         <span style='font-size:9px;color:{T['text_faint']};'>{dt}</span>
                     </div>
                     <div style='font-size:13px;font-weight:600;color:{"#f1f5f9" if DARK else "#0f172a"};line-height:1.5;'>
@@ -1846,6 +1853,8 @@ if page == "Dashboard":
                 </div>""", unsafe_allow_html=True)
                 shown += 1
                 if shown >= 6: break
+                
+            st.session_state.avg_sentiment = sum(sentiment_scores) / len(sentiment_scores) if sentiment_scores else 0.0
         else:
             qe = urllib.request.quote(f"{stock_name} stock news")
             st.markdown(f"""
@@ -1870,6 +1879,19 @@ if page == "Dashboard":
             main_text=rec_display,
             sub_text=f"{n_ana} analysts" if n_ana else None,
             color=rec_color
+        )
+        
+        # NLP News Sentiment
+        avg_sent = st.session_state.get("avg_sentiment", 0.0)
+        if avg_sent > 0.1:   ns_text, ns_col = "BULLISH", "#00ff9d"
+        elif avg_sent < -0.1: ns_text, ns_col = "BEARISH", "#ff0055"
+        else:                ns_text, ns_col = "NEUTRAL", "#e3b341"
+        
+        render_html_block(
+            title="NEWS SENTIMENT (NLP)",
+            main_text=ns_text,
+            sub_text=f"Score: {avg_sent:+.2f} (from headlines)",
+            color=ns_col
         )
 
         # Target Price
@@ -1937,39 +1959,43 @@ elif page == "Candlestick":
 elif page == f"{horizon_input}-Day Forecast":
     st.markdown(f"<div class='section-sub'>// {horizon_input}-DAY PRICE FORECAST</div>", unsafe_allow_html=True)
 
-    if not market_is_open:
-        st.info("🕒 **Forecast engine is offline while the market is closed.** Predictions will resume during regular trading hours.")
-        st.markdown(f"""
-        <div style='text-align:center;padding:50px;background:{T['bg_card2']};border:1px solid {T['border']};border-radius:16px;margin-top:20px;'>
-            <div style='font-size:48px;margin-bottom:16px;'>🔮</div>
-            <div style='font-size:18px;color:{T['text_muted']};font-weight:700;'>MARKET CLOSED</div>
-            <div style='font-size:13px;color:{T['text_faint']};margin-top:10px;line-height:1.6;'>
-                TradeVision AI requires live liquidity and price discovery signals to generate accurate recursive forecasts.
-                Please check back when the exchange is active.
-            </div>
-        </div>""", unsafe_allow_html=True)
-    else:
-        ec1, ec2 = st.columns(2)
-        fdf = pd.DataFrame({"Date":[d.strftime("%Y-%m-%d") for d in forecast_dates], f"Predicted ({CUR})":[round(p[0],2) for p in forecast_prices], "Day":[f"Day {i+1}" for i in range(len(forecast_dates))]})
-        with ec1:
-            st.download_button("📥 DOWNLOAD CSV",   data=fdf.to_csv(index=False).encode(), file_name=f"{stock_name}_{horizon_input}day.csv",  mime="text/csv", use_container_width=True)
-        with ec2:
-            import io
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine="openpyxl") as w: fdf.to_excel(w, index=False, sheet_name="Forecast")
-            st.download_button("📊 DOWNLOAD EXCEL", data=buf.getvalue(), file_name=f"{stock_name}_{horizon_input}day.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+    ec1, ec2 = st.columns(2)
+    fdf = pd.DataFrame({"Date":[d.strftime("%Y-%m-%d") for d in forecast_dates], f"Predicted ({CUR})":[round(p[0],2) for p in forecast_prices], "Day":[f"Day {i+1}" for i in range(len(forecast_dates))]})
+    with ec1:
+        st.download_button("📥 DOWNLOAD CSV",   data=fdf.to_csv(index=False).encode(), file_name=f"{stock_name}_{horizon_input}day.csv",  mime="text/csv", use_container_width=True)
+    with ec2:
+        import io
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as w: fdf.to_excel(w, index=False, sheet_name="Forecast")
+        st.download_button("📊 DOWNLOAD EXCEL", data=buf.getvalue(), file_name=f"{stock_name}_{horizon_input}day.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
 
-        st.plotly_chart(chart_forecast(data, forecast_dates, forecast_prices, current_price, stock_name, horizon_input, CUR), use_container_width=True)
+    # Full-width forecast chart
+    st.plotly_chart(chart_forecast(data, forecast_dates, forecast_prices, current_price, stock_name, horizon_input, CUR), use_container_width=True)
 
-        st.markdown("<div class='section-sub' style='margin-top:8px;'>// DAILY BREAKDOWN</div>", unsafe_allow_html=True)
-        prev = current_price
-        for row_start in range(0, horizon_input, 7):
-            chunk = list(zip(forecast_dates, forecast_prices))[row_start:row_start+7]
-            cols  = st.columns(len(chunk))
-            for i,(col,(date,pa)) in enumerate(zip(cols,chunk)):
-                price=pa[0]; chg=price-prev; chgp=chg/prev*100
-                col.metric(f"Day {row_start+i+1}·{date.strftime('%b %d')}", f"{CUR}{price:,.2f}", f"{'▲' if chg>=0 else '▼'} {abs(chgp):.1f}%", delta_color="normal" if chg>=0 else "inverse")
-                prev=price
+    # Daily breakdown with full prices (custom HTML to avoid st.metric truncation)
+    st.markdown("<div class='section-sub' style='margin-top:8px;'>// DAILY BREAKDOWN</div>", unsafe_allow_html=True)
+    prev = current_price
+    for row_start in range(0, horizon_input, 7):
+        chunk = list(zip(forecast_dates, forecast_prices))[row_start:row_start+7]
+        cols  = st.columns(len(chunk))
+        for i,(col,(date,pa)) in enumerate(zip(cols,chunk)):
+            price=pa[0]; chg=price-prev; chgp=chg/prev*100
+            chg_color = "#00ff9d" if chg >= 0 else "#ff0055"
+            arrow = "▲" if chg >= 0 else "▼"
+            col.markdown(f"""
+<div style='background:{T['bg_card2']};border:1px solid {T['border']};border-radius:14px;
+    padding:14px 10px;text-align:center;margin-bottom:6px;'>
+    <div style='font-size:9px;color:{T['text_faint']};letter-spacing:2px;font-weight:700;margin-bottom:6px;'>
+        DAY {row_start+i+1} · {date.strftime('%b %d')}
+    </div>
+    <div style='font-size:17px;font-weight:700;color:{T['text_metric']};white-space:nowrap;'>
+        {CUR}{price:,.2f}
+    </div>
+    <div style='font-size:12px;font-weight:700;color:{chg_color};margin-top:4px;'>
+        {arrow} {abs(chgp):.2f}%
+    </div>
+</div>""", unsafe_allow_html=True)
+            prev=price
 
 # ── Technical Analysis ────────────────────────────────────────────
 elif page == "Technical":
