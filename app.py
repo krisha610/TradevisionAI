@@ -22,7 +22,26 @@ from predict import make_predictions, next_day_prediction, forecast_n_days
 
 
 # ══════════════════════════════════════════════════════════════════
+#  UI HELPERS
+# ══════════════════════════════════════════════════════════════════
+
+def render_html_block(title, main_text, sub_text=None, color="#00ff9d"):
+    """
+    Standardized card-like rendering for dashboard metrics.
+    Prevents Streamlit markdown leaks by using pure, non-indented HTML.
+    """
+    html = f"""
+<div style="background:rgba(15,23,42,0.5);padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);margin-top:10px;">
+    <div style="font-size:11px;color:#94a3b8;letter-spacing:2px;margin-bottom:6px;">{title}</div>
+    <div style="font-size:22px;font-weight:700;color:{color};">{main_text}</div>
+    {f"<div style='margin-top:6px;font-size:12px;color:{color};'>{sub_text}</div>" if sub_text else ""}
+</div>"""
+    st.markdown(html, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════
 #  PERSISTENT STORAGE — SQLite
+
 # ══════════════════════════════════════════════════════════════════
 import tempfile, platform
 # Cloud-compatible paths — use temp dir if home not writable
@@ -1732,41 +1751,39 @@ if info:
     r1c6.metric("P/E Ratio",  f"{info.get('trailingPE','N/A')}")
 
     # 52W alert row (already computed above)
-    # RNN section HTML
-    if not market_is_open:
-        rnn_val_html = "<span style='color:#64748b;font-weight:700;margin-left:8px;'>CLOSED</span>"
-    else:
-        rnn_color = "#00ff9d" if next_price >= current_price else "#ff0055"
-        rnn_icon  = "▲" if next_price >= current_price else "▼"
-        rnn_pct_val = abs(next_price - current_price) / current_price * 100
-        rnn_badge = "badge-safe" if next_price >= current_price else "badge-danger"
-        rnn_val_html = f"<span style='color:{rnn_color};font-weight:700;margin-left:8px;'>{CUR}{next_price:,.2f}</span> <span class='alert-badge {rnn_badge}'>{rnn_icon} {rnn_pct_val:.2f}%</span>"
+    # Quick Metrics Row
+    m_col1, m_col2, m_col3 = st.columns(3)
+    
+    with m_col1:
+        render_html_block(
+            title="52W HIGH",
+            main_text=f"{CUR}{w52h:,.2f}",
+            sub_text=f"{pct_h:.1f}% away",
+            color="#ff0055" if pct_h < 5 else "#e3b341" if pct_h < 15 else "#00ff9d"
+        )
+    
+    with m_col2:
+        render_html_block(
+            title="52W LOW",
+            main_text=f"{CUR}{w52l:,.2f}",
+            sub_text=f"{pct_l:.1f}% above",
+            color="#00ff9d" if pct_l < 5 else "#e3b341"
+        )
+    
+    with m_col3:
+        if not market_is_open:
+            render_html_block("TOMORROW RNN", "CLOSED", "Market Offline", "#64748b")
+        else:
+            rnn_color = "#00ff9d" if next_price >= current_price else "#ff0055"
+            rnn_icon  = "▲" if next_price >= current_price else "▼"
+            rnn_pct_val = abs(next_price - current_price) / current_price * 100
+            render_html_block(
+                title="TOMORROW RNN",
+                main_text=f"{CUR}{next_price:,.2f}",
+                sub_text=f"{rnn_icon} {rnn_pct_val:.2f}%",
+                color=rnn_color
+            )
 
-
-    st.markdown(f"""
-    <div style='display:flex;gap:12px;margin:8px 0 4px;flex-wrap:wrap;'>
-        <div style='background:{T['bg_card2']};border:1px solid {T['border']};border-radius:10px;
-            padding:8px 16px;font-size:11px;flex:1;'>
-            <span style='color:{T['text_faint']};'>52W HIGH</span>
-            <span style='color:{T['text_metric']};font-weight:700;margin-left:8px;'>{CUR}{w52h:,.2f}</span>
-            <span class='alert-badge {"badge-danger" if pct_h<5 else "badge-warning" if pct_h<15 else "badge-safe"}'>
-                {pct_h:.1f}% away
-            </span>
-        </div>
-        <div style='background:{T['bg_card2']};border:1px solid {T['border']};border-radius:10px;
-            padding:8px 16px;font-size:11px;flex:1;'>
-            <span style='color:{T['text_faint']};'>52W LOW</span>
-            <span style='color:{T['text_metric']};font-weight:700;margin-left:8px;'>{CUR}{w52l:,.2f}</span>
-            <span class='alert-badge {"badge-safe" if pct_l<5 else "badge-warning" if pct_l<15 else "badge-safe"}'>
-                {pct_l:.1f}% above
-            </span>
-        </div>
-        <div style='background:{T['bg_card2']};border:1px solid {T['border']};border-radius:10px;
-            padding:8px 16px;font-size:11px;flex:1;'>
-            <span style='color:{T['text_faint']};'>TOMORROW RNN</span>
-            {rnn_val_html}
-        </div>
-    </div>""", unsafe_allow_html=True)
 
 st.divider()
 
@@ -1848,17 +1865,25 @@ if page == "Dashboard":
         rec_display = rec if rec and rec not in ("NONE","N/A","") else "N/A"
         rec_color   = "#00ff9d" if any(x in rec_display for x in ("BUY","OUTPERFORM","OVERWEIGHT")) else ("#ff0055" if any(x in rec_display for x in ("SELL","UNDERPERFORM","UNDERWEIGHT")) else ("#e3b341" if "HOLD" in rec_display else T['text_faint']))
 
-        st.markdown("<div class='section-sub'>// ANALYST CONSENSUS</div>", unsafe_allow_html=True)
-        st.markdown(textwrap.dedent(f"""
-            <div style='background:{T['bg_card2']};padding:20px;border-radius:14px;border:1px solid {T['border']};text-align:center;margin-bottom:14px;'>
-                <div style='font-size:9px;color:#64748b;letter-spacing:2px;margin-bottom:8px;'>CONSENSUS RATING</div>
-                <div style='font-size:30px;font-weight:700;color:{rec_color};letter-spacing:1px;'>{rec_display}</div>
-                {f"<div style='font-size:10px;color:{T['text_faint']};margin-top:4px;'>{n_ana} analysts</div>" if n_ana else ""}
-                <hr style='margin:14px 0;opacity:0.08;'>
-                <div style='font-size:9px;color:#64748b;letter-spacing:2px;margin-bottom:6px;'>MEAN TARGET</div>
-                <div style='font-size:22px;font-weight:700;color:{T['text_metric']};'>{f"{CUR}{target:,.2f}" if isinstance(target,(int,float)) else "N/A"}</div>
-                {f"<div style='font-size:11px;color:{'#00ff9d' if isinstance(target,(int,float)) and target>current_price else '#ff0055'};margin-top:4px;'>{'▲' if isinstance(target,(int,float)) and target>current_price else '▼'} {abs((target-current_price)/current_price*100):.1f}% from current</div>" if isinstance(target,(int,float)) else ""}
-            </div>"""), unsafe_allow_html=True)
+        render_html_block(
+            title="CONSENSUS RATING",
+            main_text=rec_display,
+            sub_text=f"{n_ana} analysts" if n_ana else None,
+            color=rec_color
+        )
+
+        # Target Price
+        if isinstance(target, (int, float)):
+            diff_pct = (target - current_price) / current_price * 100
+            t_arrow  = "▲" if diff_pct >= 0 else "▼"
+            t_color  = "#00ff9d" if diff_pct >= 0 else "#ff0055"
+            render_html_block(
+                title="MEAN TARGET",
+                main_text=f"{CUR}{target:,.2f}",
+                sub_text=f"{t_arrow} {abs(diff_pct):.1f}% from current",
+                color=t_color
+            )
+
 
 
         # Profitability
