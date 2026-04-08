@@ -39,8 +39,8 @@ def load_data(stock_name):
     data.sort_index(inplace=True)
     data = data[~data.index.duplicated(keep='last')]
 
-    # 5. Need at least 200 rows for meaningful training
-    if len(data) < 200:
+    # 5. Need at least 15 rows for RSI and technicals (though 200 is preferred for training)
+    if len(data) < 15:
         return None, {}
 
     # ── Fetch info safely with Retries & Fast-Info Fallback ──────────
@@ -48,51 +48,63 @@ def load_data(stock_name):
     for attempt in range(3):
         try:
             info = ticker.info
-            if info and len(info) > 10: 
+            if info and isinstance(info, dict) and len(info) > 5: 
                 break
         except Exception:
-            time.sleep(0.5)
+            time.sleep(0.3)
+
+    # sometimes ticker.info is None
+    if info is None: info = {}
 
     # Sometimes yfinance gets an info dict but omits qualitative keys like recommendationKey
     needs_yq_fallback = not info or "recommendationKey" not in info or str(info.get("recommendationKey")).lower() in ["none", "n/a"]
 
-    if needs_yq_fallback or len(info) < 10:
+    if needs_yq_fallback:
         try:
-            from yahooquery import Ticker as YQTicker
-            yq_ticker = YQTicker(stock_name)
-            
-            # Fetch qualitative data using yahooquery
             try:
-                yq_summary = yq_ticker.summary_detail.get(stock_name, {})
-                if isinstance(yq_summary, str): yq_summary = {}
-            except: yq_summary = {}
-            
-            try:
-                yq_financial = yq_ticker.financial_data.get(stock_name, {})
-                if isinstance(yq_financial, str): yq_financial = {}
-            except: yq_financial = {}
+                from yahooquery import Ticker as YQTicker
+                yq_ticker = YQTicker(stock_name)
+                
+                # Fetch qualitative data using yahooquery
+                try:
+                    yq_summary = yq_ticker.summary_detail.get(stock_name, {})
+                    if isinstance(yq_summary, str): yq_summary = {}
+                except: yq_summary = {}
+                
+                try:
+                    yq_financial = yq_ticker.financial_data.get(stock_name, {})
+                    if isinstance(yq_financial, str): yq_financial = {}
+                except: yq_financial = {}
+            except ImportError:
+                yq_summary = {}
+                yq_financial = {}
             
             # fast_info is more reliable for real-time prices
-            fi = ticker.fast_info
+            try:
+                fi = ticker.fast_info
+            except:
+                fi = {}
             
             # Augment or replace info completely
             if not info: info = {}
+            
+            last_close = data['Close'].iloc[-1] if not data['Close'].empty else 0.0
             
             info["shortName"] = info.get("shortName") or stock_name.replace(".NS","").replace(".BO","")
             info["fiftyTwoWeekHigh"] = info.get("fiftyTwoWeekHigh") or fi.get("yearHigh")
             info["fiftyTwoWeekLow"] = info.get("fiftyTwoWeekLow") or fi.get("yearLow")
             info["marketCap"] = info.get("marketCap") or fi.get("marketCap")
-            info["regularMarketPrice"] = info.get("regularMarketPrice") or fi.get("lastPrice", data['Close'].iloc[-1])
-            info["currency"] = info.get("currency") or fi.get("currency", "INR")
+            info["regularMarketPrice"] = info.get("regularMarketPrice") or fi.get("lastPrice") or last_close
+            info["currency"] = info.get("currency") or fi.get("currency") or "INR"
             
-            info["recommendationKey"] = yq_financial.get("recommendationKey", "N/A")
-            info["returnOnEquity"] = yq_financial.get("returnOnEquity")
-            info["profitMargins"] = yq_financial.get("profitMargins")
-            info["trailingEps"] = yq_summary.get("trailingEps") or yq_financial.get("returnOnEquity") 
-            info["dividendYield"] = yq_summary.get("dividendYield")
+            if yq_financial:
+                info["recommendationKey"] = yq_financial.get("recommendationKey", "N/A")
+                info["returnOnEquity"] = yq_financial.get("returnOnEquity")
+                info["profitMargins"] = yq_financial.get("profitMargins")
+                info["trailingEps"] = yq_summary.get("trailingEps") or yq_financial.get("returnOnEquity") 
+                info["dividendYield"] = yq_summary.get("dividendYield")
             
         except Exception as e:
-            print(f"Error fetching YQ fallback: {e}")
             pass
 
     try:

@@ -14,6 +14,14 @@ import sqlite3, hashlib, json, smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
+import nltk
+
+# ── NLTK Setup for Cloud ───────────────────────────────────────────
+try:
+    nltk.download('punkt', quiet=True)
+    nltk.download('stopwords', quiet=True)
+except:
+    pass
 
 from data_loader import load_data
 from preprocessing import scale_data, create_sequences
@@ -839,7 +847,7 @@ def chart_indicators(data):
     delta = data["Close"].diff()
     gain  = delta.where(delta>0,0).rolling(14).mean()
     loss  = (-delta.where(delta<0,0)).rolling(14).mean()
-    data["RSI"] = 100 - (100/(1+gain/loss))
+    data["RSI"] = 100 - (100/(1+gain/(loss + 1e-10)))
     data["MACD"]   = data["Close"].ewm(span=12).mean() - data["Close"].ewm(span=26).mean()
     data["Signal"] = data["MACD"].ewm(span=9).mean()
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.06, row_heights=[0.4,0.3,0.3],
@@ -934,7 +942,7 @@ def compute_signals(data):
     delta = df["Close"].diff()
     gain  = delta.where(delta>0,0).rolling(14).mean()
     loss  = (-delta.where(delta<0,0)).rolling(14).mean()
-    df["RSI"] = 100 - (100/(1+gain/loss))
+    df["RSI"] = 100 - (100/(1+gain/(loss + 1e-10)))
     df["MACD"]   = df["Close"].ewm(span=12).mean() - df["Close"].ewm(span=26).mean()
     df["Signal_MACD"] = df["MACD"].ewm(span=9).mean()
     df["buy_signal"]  = ((df["EMA9"] > df["EMA21"]) & (df["EMA9"].shift(1) <= df["EMA21"].shift(1)) & (df["RSI"] < 65))
@@ -1733,7 +1741,10 @@ padding:2px 8px;border-radius:20px;'>{active_model}</div>
 
 # Session metrics
 if info:
-    last  = data.iloc[-1]
+    last  = data.iloc[-1] if not data.empty else None
+    if last is None:
+        st.error("Historical data is missing for this ticker.")
+        st.stop()
     d_o   = last.get("Open",0); d_h=last.get("High",0); d_l=last.get("Low",0); d_c=last.get("Close",0)
     mcap  = info.get("marketCap","N/A")
     if isinstance(mcap,(int,float)):
@@ -2004,8 +2015,8 @@ elif page == "Technical":
     delta_rsi = data_rsi["Close"].diff()
     gain_rsi  = delta_rsi.where(delta_rsi>0,0).rolling(14).mean()
     loss_rsi  = (-delta_rsi.where(delta_rsi<0,0)).rolling(14).mean()
-    rsi_series = 100-(100/(1+gain_rsi/loss_rsi))
-    current_rsi = float(rsi_series.dropna().iloc[-1])
+    rsi_series = 100-(100/(1+gain_rsi/(loss_rsi + 1e-10)))
+    current_rsi = float(rsi_series.dropna().iloc[-1]) if not rsi_series.dropna().empty else 50.0
 
     g1, g2 = st.columns([1,2])
     with g1:
@@ -2064,10 +2075,10 @@ elif page == "Buy/Sell Signals":
     st.plotly_chart(sig_fig, use_container_width=True)
 
     # Current signal status
-    last_row   = sig_df.iloc[-1]
-    cur_rsi    = float(sig_df["RSI"].dropna().iloc[-1])
-    ema9_now   = float(sig_df["EMA9"].iloc[-1])
-    ema21_now  = float(sig_df["EMA21"].iloc[-1])
+    last_row   = sig_df.iloc[-1] if not sig_df.empty else None
+    cur_rsi    = float(sig_df["RSI"].dropna().iloc[-1]) if not sig_df["RSI"].dropna().empty else 50.0
+    ema9_now   = float(sig_df["EMA9"].iloc[-1]) if not sig_df["EMA9"].empty else 0.0
+    ema21_now  = float(sig_df["EMA21"].iloc[-1]) if not sig_df["EMA21"].empty else 0.0
     trend      = "BULLISH" if ema9_now > ema21_now else "BEARISH"
     trend_col  = "#00ff9d" if trend == "BULLISH" else "#ff0055"
     rsi_zone   = "OVERBOUGHT" if cur_rsi>70 else ("OVERSOLD" if cur_rsi<30 else "NEUTRAL")
@@ -2149,8 +2160,8 @@ elif page == "Compare Stocks":
             st.error(f"Could not load data for {ticker_b}")
         else:
             # Header comparison
-            price_a = float(data["Close"].squeeze().iloc[-1])
-            price_b = float(data_b["Close"].squeeze().iloc[-1])
+            price_a = float(data["Close"].squeeze().iloc[-1]) if not data["Close"].empty else 0.0
+            price_b = float(data_b["Close"].squeeze().iloc[-1]) if not data_b["Close"].empty else 0.0
             chg_a   = (price_a - float(data["Close"].squeeze().iloc[-2]))/float(data["Close"].squeeze().iloc[-2])*100
             chg_b   = (price_b - float(data_b["Close"].squeeze().iloc[-2]))/float(data_b["Close"].squeeze().iloc[-2])*100
 
@@ -2669,7 +2680,7 @@ elif page == "Backtesting":
         equity.append(curr_val)
 
     # Final value if still holding
-    final_price = float(close_bt.iloc[-1])
+    final_price = float(close_bt.iloc[-1]) if not close_bt.empty else 0.0
     final_val   = capital + (shares * final_price if in_trade else 0)
     total_ret   = ((final_val - bt_capital) / bt_capital) * 100
     buy_hold_ret = ((final_price - float(close_bt.iloc[0])) / float(close_bt.iloc[0])) * 100
@@ -2763,9 +2774,9 @@ elif page == "PDF Report":
     st.markdown(f"<div style='font-size:11px;color:{tf_p};margin-bottom:20px;'>Professional PDF report — download in one click !</div>", unsafe_allow_html=True)
 
     sig_df_pdf  = compute_signals(data)
-    cur_rsi_pdf = float(sig_df_pdf["RSI"].dropna().iloc[-1])
-    ema9_pdf    = float(sig_df_pdf["EMA9"].iloc[-1])
-    ema21_pdf   = float(sig_df_pdf["EMA21"].iloc[-1])
+    cur_rsi_pdf = float(sig_df_pdf["RSI"].dropna().iloc[-1]) if not sig_df_pdf["RSI"].dropna().empty else 50.0
+    ema9_pdf    = float(sig_df_pdf["EMA9"].iloc[-1]) if not sig_df_pdf["EMA9"].empty else 0.0
+    ema21_pdf   = float(sig_df_pdf["EMA21"].iloc[-1]) if not sig_df_pdf["EMA21"].empty else 0.0
     trend_pdf   = "Bullish" if ema9_pdf > ema21_pdf else "Bearish"
     overall_sig = "BUY" if (trend_pdf=="Bullish" and cur_rsi_pdf<65) else ("SELL" if (trend_pdf=="Bearish" and cur_rsi_pdf>35) else "HOLD")
     sig_col_r   = (0,200,81) if overall_sig=="BUY" else ((255,68,68) if overall_sig=="SELL" else (255,136,0))
@@ -3045,14 +3056,15 @@ elif page == "Stock Screener":
                 try: info_s = tk_s.info or {}
                 except: pass
 
-                cp_s   = float(df_s["Close"].iloc[-1])
-                pp_s   = float(df_s["Close"].iloc[-2])
-                chp_s  = (cp_s-pp_s)/pp_s*100
+                cp_s   = float(df_s["Close"].iloc[-1]) if not df_s.empty else 0.0
+                pp_s   = float(df_s["Close"].iloc[-2]) if len(df_s) > 1 else cp_s
+                chp_s  = (cp_s-pp_s)/pp_s*100 if pp_s != 0 else 0
                 # RSI
                 d_s    = df_s["Close"].diff()
                 g_s    = d_s.where(d_s>0,0).rolling(14).mean()
                 l_s    = (-d_s.where(d_s<0,0)).rolling(14).mean()
-                rsi_s  = float((100-(100/(1+g_s/(l_s+1e-10)))).iloc[-1])
+                rsi_s_series = 100-(100/(1+g_s/(l_s+1e-10)))
+                rsi_s = float(rsi_s_series.dropna().iloc[-1]) if not rsi_s_series.dropna().empty else 50.0
                 # 52W
                 high52 = float(df_s["Close"].max())
                 low52  = float(df_s["Close"].min())
